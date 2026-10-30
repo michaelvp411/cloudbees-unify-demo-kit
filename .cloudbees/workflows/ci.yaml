@@ -77,7 +77,7 @@ jobs:
           elif echo "$MSG" | grep -qi "$LABEL_PATTERN"; then
             AI=yes; REASON="marker: $LABEL_PATTERN"
           fi
-          case "${{ inputs.ai_assisted }}" in
+          case "${{ cloudbees.event.inputs.ai_assisted }}" in
             yes) AI=yes; REASON="manual override (workflow input)" ;;
             no)  AI=no;  REASON="manual override (workflow input)" ;;
           esac
