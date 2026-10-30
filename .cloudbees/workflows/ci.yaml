@@ -101,11 +101,12 @@ jobs:
           echo "AI-assisted: $AI ($REASON)"
           echo "Secret scan findings: $SECRETS"
           echo "Changed lines: $CHANGED (policy max $MAX_LINES) -> churn $CHURN"
-          echo "$AI" > "$CLOUDBEES_OUTPUTS/ai-assisted"
-          echo "$REASON" > "$CLOUDBEES_OUTPUTS/reason"
-          echo "$SECRETS" > "$CLOUDBEES_OUTPUTS/secret-findings"
-          echo "$CHANGED" > "$CLOUDBEES_OUTPUTS/changed-lines"
-          echo "$CHURN" > "$CLOUDBEES_OUTPUTS/churn"
+          # printf, not echo: a trailing newline breaks == comparisons in job if conditions.
+          printf '%s' "$AI" > "$CLOUDBEES_OUTPUTS/ai-assisted"
+          printf '%s' "$REASON" > "$CLOUDBEES_OUTPUTS/reason"
+          printf '%s' "$SECRETS" > "$CLOUDBEES_OUTPUTS/secret-findings"
+          printf '%s' "$CHANGED" > "$CLOUDBEES_OUTPUTS/changed-lines"
+          printf '%s' "$CHURN" > "$CLOUDBEES_OUTPUTS/churn"
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:
@@ -146,27 +147,44 @@ jobs:
     if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' }}
     steps:
       - name: Enforce clean secret scan or approved exception
+        id: enforce
         uses: docker://alpine:3.20
         shell: sh
+        env:
+          AI: ${{ needs.ai-change-guardrail.outputs.ai-assisted }}
+          REASON: ${{ needs.ai-change-guardrail.outputs.reason }}
+          FINDINGS: ${{ needs.ai-change-guardrail.outputs.secret-findings }}
+          CHANGED: ${{ needs.ai-change-guardrail.outputs.changed-lines }}
+          CHURN: ${{ needs.ai-change-guardrail.outputs.churn }}
+          # Empty when the approval gate was skipped, so parse it here rather than with fromJSON.
+          APPROVAL: ${{ needs.ai-guardrail-approval.outputs.approvalInputValues }}
         run: |
-          FINDINGS="${{ needs.ai-change-guardrail.outputs.secret-findings }}"
-          EXCEPTION="${{ fromJSON(needs.ai-guardrail-approval.outputs.approvalInputValues).security-exception-granted }}"
-          echo "Secret findings: $FINDINGS, security exception granted: $EXCEPTION"
+          approval_value() { echo "$APPROVAL" | grep -o "\"$1\": *\"\?[a-z]*" | sed 's/.*[": ]//'; }
+          if [ "$AI" != "yes" ]; then
+            printf '%s' "- AI-assisted: **no** ($REASON)
+          - Result: standard pipeline, AI guardrails not required" > "$CLOUDBEES_OUTPUTS/summary"
+            echo "Not AI-assisted: guardrails not required."
+            exit 0
+          fi
+          EXCEPTION=$(approval_value security-exception-granted)
+          CHURN_REVIEWED=$(approval_value churn-reviewed)
+          echo "Secret findings: $FINDINGS, security exception granted: ${EXCEPTION:-none}"
           if [ "$FINDINGS" != "0" ] && [ "$EXCEPTION" != "true" ]; then
             echo "AI guardrail: secret scan not clean and no exception granted. Blocking artifact registration."
             exit 1
           fi
+          printf '%s' "- AI-assisted: **yes** ($REASON)
+          - Human approval: **approved**
+          - Secret scan: $FINDINGS finding(s), security exception granted: ${EXCEPTION:-n/a}
+          - Churn: $CHANGED lines ($CHURN), reviewed: ${CHURN_REVIEWED:-n/a}
+          - Result: **guardrails applied**, artifact registration allowed" > "$CLOUDBEES_OUTPUTS/summary"
           echo "AI guardrail passed."
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:
           content: |-
-            ## AI change guardrail — guardrails applied
-            - AI-assisted: **yes** (${{ needs.ai-change-guardrail.outputs.reason }})
-            - Human approval: **approved**
-            - Secret scan: ${{ needs.ai-change-guardrail.outputs.secret-findings }} finding(s), security exception granted: ${{ fromJSON(needs.ai-guardrail-approval.outputs.approvalInputValues).security-exception-granted }}
-            - Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}), reviewed: ${{ fromJSON(needs.ai-guardrail-approval.outputs.approvalInputValues).churn-reviewed }}
-            - Result: **guardrails applied**, artifact registration allowed
+            ## AI change guardrail — result
+            ${{ steps.enforce.outputs.summary }}
   # SIMULATED: illustrates CloudBees Smart Tests (formerly Launchable)
   # predictive test selection. No Smart Tests service is called; the numbers
   # below are illustrative, not measured.
