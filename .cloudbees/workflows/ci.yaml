@@ -305,8 +305,8 @@ jobs:
     needs:
       - security-scan
       - ai-guardrail-enforce
-    # Runs when the AI guardrail jobs passed or were skipped (human-authored change).
-    if: ${{ !failure() }}
+    # Unify still runs this job when ai-guardrail-enforce is skipped, and skips it
+    # when enforce fails, so no if condition is needed.
     outputs:
       artifact-id: ${{ steps.register-artifact.outputs.artifact-id }}
       artifact-version: 1.4.${{ cloudbees.run_number }}
