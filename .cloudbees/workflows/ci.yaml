@@ -288,7 +288,7 @@ jobs:
       - security-scan
       - ai-guardrail-enforce
     # Runs when the AI guardrail jobs passed or were skipped (human-authored change).
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() }}
     outputs:
       artifact-id: ${{ steps.register-artifact.outputs.artifact-id }}
       artifact-version: 1.4.${{ cloudbees.run_number }}
