@@ -8,7 +8,16 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      ai_assisted:
+        type: choice
+        description: Override AI-assisted detection (auto reads the commit trailers)
+        options:
+          - auto
+          - "yes"
+          - "no"
+        default: auto
 permissions:
   id-token: write
   contents: read
@@ -35,9 +44,152 @@ jobs:
             - `k8s/service.yaml`: present
             - `helm/unify-demo-app/Chart.yaml`: present
             - Status: **ready**
-  unit-tests:
+  # AI change guardrail: enforces the aiAssistedChanges section of
+  # policies/ai-governance-policy.yaml. AI-assisted commits (detected from
+  # commit trailers or an [ai-generated] marker) get a secret scan, a churn
+  # check, and a required human approval before the artifact is registered.
+  ai-change-guardrail:
     needs:
       - validate
+    steps:
+      - name: Checkout source
+        uses: https://github.com/cloudbees-io/checkout@v1
+        with:
+          fetch-depth: 2
+      - name: Detect AI-assisted change and apply checks
+        id: detect
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          apk add --no-cache git >/dev/null
+          git config --global --add safe.directory '*'
+          POLICY=policies/ai-governance-policy.yaml
+          policy_value() { grep -m1 "^ *$1:" "$POLICY" | sed 's/^[^:]*: *//; s/^"//; s/"$//'; }
+          TRAILER_PATTERN=$(policy_value trailerPattern)
+          LABEL_PATTERN=$(policy_value labelPattern)
+          MAX_LINES=$(policy_value maxChangedLines)
+
+          MSG=$(git log -1 --format=%B)
+          AI=no
+          REASON="no AI trailer or marker in commit"
+          if echo "$MSG" | grep -qiE "$TRAILER_PATTERN"; then
+            AI=yes; REASON="trailer: $(echo "$MSG" | grep -iE "$TRAILER_PATTERN" | head -1)"
+          elif echo "$MSG" | grep -qi "$LABEL_PATTERN"; then
+            AI=yes; REASON="marker: $LABEL_PATTERN"
+          fi
+          case "${{ inputs.ai_assisted }}" in
+            yes) AI=yes; REASON="manual override (workflow input)" ;;
+            no)  AI=no;  REASON="manual override (workflow input)" ;;
+          esac
+
+          # Secret scan: hardcoded credentials in source.
+          SECRETS=$(grep -rniE '(password|passwd|secret|api[_-]?key|token) *= *"[^"]+"' src/ | wc -l | tr -d ' ')
+
+          # Churn: lines added + deleted by this commit.
+          CHANGED=0
+          if git rev-parse -q --verify HEAD~1 >/dev/null; then
+            CHANGED=$(git diff --numstat HEAD~1 HEAD | awk '{s+=$1+$2} END {print s+0}')
+          fi
+          CHURN=ok
+          [ "$CHANGED" -gt "$MAX_LINES" ] && CHURN=high
+
+          echo "AI-assisted: $AI ($REASON)"
+          echo "Secret scan findings: $SECRETS"
+          echo "Changed lines: $CHANGED (policy max $MAX_LINES) -> churn $CHURN"
+          echo "$AI" > "$CLOUDBEES_OUTPUTS/ai-assisted"
+          echo "$REASON" > "$CLOUDBEES_OUTPUTS/reason"
+          echo "$SECRETS" > "$CLOUDBEES_OUTPUTS/secret-findings"
+          echo "$CHANGED" > "$CLOUDBEES_OUTPUTS/changed-lines"
+          echo "$CHURN" > "$CLOUDBEES_OUTPUTS/churn"
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## AI change guardrail — detection
+            - AI-assisted: **${{ steps.detect.outputs.ai-assisted }}** (${{ steps.detect.outputs.reason }})
+            - Policy: `policies/ai-governance-policy.yaml` (aiAssistedChanges)
+            - Secret scan: ${{ steps.detect.outputs.secret-findings }} hardcoded credential(s) in `src/`
+            - Churn: ${{ steps.detect.outputs.changed-lines }} lines changed (${{ steps.detect.outputs.churn }})
+            - Next: AI-assisted changes require human approval before the artifact is registered
+    outputs:
+      ai-assisted: ${{ steps.detect.outputs.ai-assisted }}
+      reason: ${{ steps.detect.outputs.reason }}
+      secret-findings: ${{ steps.detect.outputs.secret-findings }}
+      changed-lines: ${{ steps.detect.outputs.changed-lines }}
+      churn: ${{ steps.detect.outputs.churn }}
+  ai-guardrail-approval:
+    needs:
+      - ai-change-guardrail
+      - security-scan
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' }}
+    with:
+      instructions: "AI-assisted change detected (${{ needs.ai-change-guardrail.outputs.reason }}). Secret scan: ${{ needs.ai-change-guardrail.outputs.secret-findings }} finding(s). Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}). Review the change. The artifact is registered only if the secret scan is clean or you grant a security exception."
+      disallowLaunchByUser: false
+      approvalInputs: |
+        security-exception-granted:
+          type: boolean
+          default: false
+        churn-reviewed:
+          type: boolean
+          default: true
+    timeout-minutes: 60
+    delegates: cloudbees-io/manual-approval/custom-job.yml@v1
+  ai-guardrail-enforce:
+    needs:
+      - ai-change-guardrail
+      - ai-guardrail-approval
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' }}
+    steps:
+      - name: Enforce clean secret scan or approved exception
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          FINDINGS="${{ needs.ai-change-guardrail.outputs.secret-findings }}"
+          EXCEPTION="${{ fromJSON(needs.ai-guardrail-approval.outputs.approvalInputValues).security-exception-granted }}"
+          echo "Secret findings: $FINDINGS, security exception granted: $EXCEPTION"
+          if [ "$FINDINGS" != "0" ] && [ "$EXCEPTION" != "true" ]; then
+            echo "AI guardrail: secret scan not clean and no exception granted. Blocking artifact registration."
+            exit 1
+          fi
+          echo "AI guardrail passed."
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## AI change guardrail — guardrails applied
+            - AI-assisted: **yes** (${{ needs.ai-change-guardrail.outputs.reason }})
+            - Human approval: **approved**
+            - Secret scan: ${{ needs.ai-change-guardrail.outputs.secret-findings }} finding(s), security exception granted: ${{ fromJSON(needs.ai-guardrail-approval.outputs.approvalInputValues).security-exception-granted }}
+            - Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}), reviewed: ${{ fromJSON(needs.ai-guardrail-approval.outputs.approvalInputValues).churn-reviewed }}
+            - Result: **guardrails applied**, artifact registration allowed
+  # SIMULATED: illustrates CloudBees Smart Tests (formerly Launchable)
+  # predictive test selection. No Smart Tests service is called; the numbers
+  # below are illustrative, not measured.
+  smart-test-selection:
+    needs:
+      - validate
+    steps:
+      - name: Select tests for this change (simulated)
+        kind: test
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          echo "SIMULATED: CloudBees Smart Tests predictive test selection"
+          echo "Full suite:     1,200 tests, ~47 min"
+          echo "Selected subset:  260 tests, ~10 min (ranked by likelihood of catching a failure for this change)"
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Smart test selection — SIMULATED
+            > Illustrative numbers. This step does not call CloudBees Smart Tests.
+            - Product: CloudBees Smart Tests (formerly Launchable), predictive test selection
+            - Full suite: 1,200 tests, ~47 min
+            - Selected for this change: 260 tests, ~10 min (~79% less test time; CloudBees cites up to 80%)
+            - Skipped tests stay visible: Smart Tests reports what ran, what was skipped, and why
+  unit-tests:
+    needs:
+      - smart-test-selection
     steps:
       - name: Checkout source
         uses: https://github.com/cloudbees-io/checkout@v1
@@ -129,6 +281,9 @@ jobs:
             - Tests: 14/16 passed, 1 failed (`test_retry_on_gateway_timeout`), 1 skipped
     needs:
       - security-scan
+      - ai-guardrail-enforce
+    # Runs when the AI guardrail jobs passed or were skipped (human-authored change).
+    if: ${{ !failure() && !cancelled() }}
     outputs:
       artifact-id: ${{ steps.register-artifact.outputs.artifact-id }}
       artifact-version: 1.4.${{ cloudbees.run_number }}

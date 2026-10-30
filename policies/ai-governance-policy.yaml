@@ -1,0 +1,19 @@
+policy:
+  name: ai-governance-policy
+  description: AI governance policy for AI-assisted software delivery. The aiAssistedChanges section is enforced by the ai-change-guardrail jobs in .cloudbees/workflows/ci.yaml.
+  controls:
+    requireSharedContext: true
+    restrictUnapprovedMcpServers: true
+    requireHumanApprovalForProductionChanges: true
+    logAssistantActions: true
+  aiAssistedChanges:
+    detection:
+      # Commit trailer naming an AI assistant, e.g. "Co-Authored-By: Claude ..."
+      trailerPattern: "^Co-Authored-By:.*(Claude|Copilot|Cursor|Codex|Gemini|Devin|Windsurf)"
+      # Explicit marker in the commit message, e.g. "[ai-generated]"
+      labelPattern: "ai-generated"
+    guardrails:
+      requireCleanSecretScan: true
+      requireHumanApproval: true
+      maxChangedLines: 400
+  demoTalkingPoint: Use this to discuss how platform teams can enable AI while maintaining control and auditability.

@@ -18,7 +18,9 @@ A lightweight starter kit for SE candidates building a CloudBees Unify demo as p
 
 Workflows (runnable standalone via **Run workflow**):
 
-- `.cloudbees/workflows/ci.yaml` — CI: validate → unit tests → security scan → package. The package job **registers a build artifact** (`orders-api` version `1.4.<run>`) with CloudBees Unify so releases have an artifact to deploy. Each job publishes evidence to the run's Evidence tab.
+- `.cloudbees/workflows/ci.yaml` — CI: validate → smart test selection (simulated) → unit tests → security scan → package, with an **AI change guardrail** in parallel. The package job **registers a build artifact** (`orders-api` version `1.4.<run>`) with CloudBees Unify so releases have an artifact to deploy. Each job publishes evidence to the run's Evidence tab.
+  - **AI change guardrail**: enforces `policies/ai-governance-policy.yaml`. Commits with an AI `Co-Authored-By:` trailer or an `[ai-generated]` marker get a secret scan and a churn check, then a **manual approval**. The artifact is registered only if the scan is clean or the approver grants a security exception. Use the `ai_assisted` input on **Run workflow** to demo either path.
+  - **Smart test selection (SIMULATED)**: illustrates CloudBees Smart Tests (formerly Launchable) predictive test selection. The numbers are illustrative, and no Smart Tests service is called.
 - `.cloudbees/workflows/deploy.yaml` — simulated component deploy (callable by the application's deployer via `workflow_call`, or run standalone). Mock/echo only — no real cluster — and publishes evidence.
 - `.github/workflows/ci.yml` — GitHub Actions CI alternative, to show external-toolchain integration
 
@@ -26,6 +28,7 @@ Supporting assets:
 
 - `k8s/` — Kubernetes manifests for a simple demo app
 - `helm/unify-demo-app/` — basic Helm chart for deployment storytelling
+- `policies/ai-governance-policy.yaml` — AI governance policy, enforced by the CI AI change guardrail
 
 ## Suggested demo path
 
