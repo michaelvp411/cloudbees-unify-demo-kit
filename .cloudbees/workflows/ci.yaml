@@ -102,8 +102,8 @@ jobs:
             "version": "1.4.${{ cloudbees.run_number }}",
             "commit": "${{ cloudbees.scm.sha }}",
             "scenario": "candidate-demo",
-            "securityPolicy": "passed",
-            "testStatus": "passed"
+            "securityPolicy": "1 open finding",
+            "testStatus": "14/16 passed, 1 failed, 1 skipped"
           }
           JSON
           cat build/release-metadata.json
@@ -125,8 +125,8 @@ jobs:
             - Registered artifact ID: ${{ steps.register-artifact.outputs.artifact-id }}
             - Artifact URL: docker.io/cloudbeesdemo/orders-api:1.4.${{ cloudbees.run_number }}
             - Commit: ${{ cloudbees.scm.sha }}
-            - Security policy: passed
-            - Tests: passed
+            - Security: 1 open finding (hardcoded credential), see Security tab
+            - Tests: 14/16 passed, 1 failed (`test_retry_on_gateway_timeout`), 1 skipped
     needs:
       - security-scan
     outputs:
