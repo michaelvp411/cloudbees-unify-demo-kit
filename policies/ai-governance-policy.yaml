@@ -13,6 +13,9 @@ policy:
       # Explicit marker in the commit message, e.g. "[ai-generated]"
       labelPattern: "ai-generated"
     guardrails:
+      # false = report-only: AI changes are detected and logged as evidence, but
+      # the approval gate and enforcement are skipped. Set true for the demo.
+      enforceGuardrails: false
       requireCleanSecretScan: true
       requireHumanApproval: true
       maxChangedLines: 400

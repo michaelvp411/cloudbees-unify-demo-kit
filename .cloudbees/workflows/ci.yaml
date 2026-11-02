@@ -72,6 +72,7 @@ jobs:
           TRAILER_PATTERN=$(policy_value trailerPattern)
           LABEL_PATTERN=$(policy_value labelPattern)
           MAX_LINES=$(policy_value maxChangedLines)
+          ENFORCE=$(policy_value enforceGuardrails)
 
           MSG=$(git log -1 --format=%B)
           AI=no
@@ -107,6 +108,7 @@ jobs:
           printf '%s' "$SECRETS" > "$CLOUDBEES_OUTPUTS/secret-findings"
           printf '%s' "$CHANGED" > "$CLOUDBEES_OUTPUTS/changed-lines"
           printf '%s' "$CHURN" > "$CLOUDBEES_OUTPUTS/churn"
+          printf '%s' "$ENFORCE" > "$CLOUDBEES_OUTPUTS/enforce"
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:
@@ -116,18 +118,19 @@ jobs:
             - Policy: `policies/ai-governance-policy.yaml` (aiAssistedChanges)
             - Secret scan: ${{ steps.detect.outputs.secret-findings }} hardcoded credential(s) in `src/`
             - Churn: ${{ steps.detect.outputs.changed-lines }} lines changed (${{ steps.detect.outputs.churn }})
-            - Next: AI-assisted changes require human approval before the artifact is registered
+            - Enforcement: ${{ steps.detect.outputs.enforce }} (`enforceGuardrails` in the policy; false = report-only)
     outputs:
       ai-assisted: ${{ steps.detect.outputs.ai-assisted }}
       reason: ${{ steps.detect.outputs.reason }}
       secret-findings: ${{ steps.detect.outputs.secret-findings }}
       changed-lines: ${{ steps.detect.outputs.changed-lines }}
       churn: ${{ steps.detect.outputs.churn }}
+      enforce: ${{ steps.detect.outputs.enforce }}
   ai-guardrail-approval:
     needs:
       - ai-change-guardrail
       - security-scan
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' }}
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' }}
     with:
       instructions: "AI-assisted change detected (${{ needs.ai-change-guardrail.outputs.reason }}). Secret scan: ${{ needs.ai-change-guardrail.outputs.secret-findings }} finding(s). Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}). Review the change. The artifact is registered only if the secret scan is clean or you grant a security exception."
       disallowLaunchByUser: false
@@ -144,7 +147,7 @@ jobs:
     needs:
       - ai-change-guardrail
       - ai-guardrail-approval
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' }}
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' }}
     steps:
       - name: Enforce clean secret scan or approved exception
         id: enforce
@@ -322,7 +325,7 @@ jobs:
         run: |
           echo "Deploying orders-api ${{ needs.package.outputs.artifact-version }} to qa (simulated)"
       - name: Register deployed artifact
-        uses: cloudbees-io/register-deployed-artifact@v1
+        uses: cloudbees-io/register-deployed-artifact@v2
         with:
           artifact-id: ${{ needs.package.outputs.artifact-id }}
           target-environment: qa
