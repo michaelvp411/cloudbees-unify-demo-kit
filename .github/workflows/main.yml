@@ -20,12 +20,15 @@ jobs:
           echo "orders-api smoke: POST /orders -> 201"
           echo "checkout smoke:   payment gateway timeout path -> retried 2/3 (known failure)"
       - uses: actions/setup-node@v4
-        if: ${{ env.ROX_SDK_KEY != '' }}
         with:
           node-version: 20
       - name: Register feature flags with CloudBees Unify
-        if: ${{ env.ROX_SDK_KEY != '' }}
         run: |
+          if [ -z "$ROX_SDK_KEY" ]; then
+            echo "::warning::ROX_SDK_KEY is empty: add it under Settings > Secrets and variables > Actions > Repository secrets"
+            exit 0
+          fi
+          echo "ROX_SDK_KEY present (${#ROX_SDK_KEY} chars)"
           npm install --no-save rox-node >/dev/null
           node -e '
             const Rox = require("rox-node");
