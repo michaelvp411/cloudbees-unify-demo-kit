@@ -16,11 +16,19 @@ on:
       environment:
         type: string
         required: true
+      # Unify artifact ID from the release manifest. Set when the release is
+      # created from the Application UI; empty for hand-written manifests.
+      artifact-uuid:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       artifact-id:
         type: string
         default: orders-api:1.4.0
+      artifact-uuid:
+        type: string
+        default: ""
       environment:
         type: choice
         options:
@@ -47,6 +55,12 @@ jobs:
             echo "Non-production policy: standard checks passed"
           fi
           echo "Deploy status: SUCCESS (simulated)"
+      - name: Register deployed artifact
+        if: ${{ inputs.artifact-uuid != '' }}
+        uses: cloudbees-io/register-deployed-artifact@v1
+        with:
+          artifact-id: ${{ inputs.artifact-uuid }}
+          target-environment: ${{ inputs.environment }}
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:

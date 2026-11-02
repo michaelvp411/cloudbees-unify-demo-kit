@@ -310,3 +310,27 @@ jobs:
     outputs:
       artifact-id: ${{ steps.register-artifact.outputs.artifact-id }}
       artifact-version: 1.4.${{ cloudbees.run_number }}
+  # Every green build lands in qa, so the environment inventory and the
+  # artifact's "deployed to" history are populated without running a release.
+  deploy-qa:
+    needs:
+      - package
+    steps:
+      - name: Simulate qa deployment
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          echo "Deploying orders-api ${{ needs.package.outputs.artifact-version }} to qa (simulated)"
+      - name: Register deployed artifact
+        uses: cloudbees-io/register-deployed-artifact@v1
+        with:
+          artifact-id: ${{ needs.package.outputs.artifact-id }}
+          target-environment: qa
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Deployment — qa (simulated)
+            - Artifact: orders-api ${{ needs.package.outputs.artifact-version }}
+            - Environment: qa
+            - Registered in the environment inventory

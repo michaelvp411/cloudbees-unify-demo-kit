@@ -18,11 +18,10 @@ jobs:
           echo "demo artifact" > build/orders-api.txt
       - name: Unit tests
         run: |
-          echo "PASS: unit tests"
+          echo "orders-api unit tests: 14 passed, 1 failed (test_retry_on_gateway_timeout), 1 skipped"
       - name: Security scan placeholder
         run: |
-          echo "Critical: 0"
-          echo "High: 0"
+          echo "Secrets: 1 hardcoded credential (src/config.py)"
       - name: Publish release evidence
         run: |
           cat > release-evidence.json <<JSON
@@ -31,8 +30,8 @@ jobs:
             "component": "orders-api",
             "build": "${{ github.run_number }}",
             "commit": "${{ github.sha }}",
-            "tests": "passed",
-            "security": "passed"
+            "tests": "14/16 passed, 1 failed, 1 skipped",
+            "security": "1 open finding"
           }
           JSON
           cat release-evidence.json
