@@ -1,0 +1,34 @@
+name: Smart Tests
+# Sends orders-api test results to CloudBees Smart Tests. Push runs record the
+# current build; a manual run (Run workflow) also backfills 12 days of history
+# so the dashboards have trends and a flaky test. Needs the SMART_TESTS_TOKEN
+# repository secret (Smart Tests > Settings > API key).
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  smart-tests:
+    runs-on: ubuntu-latest
+    env:
+      SMART_TESTS_TOKEN: ${{ secrets.SMART_TESTS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Record build and tests
+        run: |
+          if [ -z "$SMART_TESTS_TOKEN" ]; then
+            echo "::warning::SMART_TESTS_TOKEN is empty: add it under Settings > Secrets and variables > Actions > Repository secrets"
+            exit 0
+          fi
+          uv tool install -q smart-tests-cli
+          smart-tests verify || true
+          BUILD="orders-api-1.4.${{ github.run_number }}"
+          smart-tests record build --build "$BUILD" --branch main --source src=.
+          smart-tests record session --build "$BUILD" --test-suite unit > session.txt
+          smart-tests record tests --session @session.txt pytest test-reports/junit.xml
+      - name: Backfill history
+        if: ${{ github.event_name == 'workflow_dispatch' && env.SMART_TESTS_TOKEN != '' }}
+        run: python3 scripts/smart-tests-seed.py
