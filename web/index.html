@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unify Flags Demo</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- rox-browser (CloudBees Unify feature management SDK) needs axios as a global. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.7.7/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/rox-browser@6.0.16/dist/rox-browser.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" id="logo"></span>
+      <div>
+        <div class="brand-name" id="brand-name"></div>
+        <div class="brand-tag" id="brand-tag"></div>
+      </div>
+    </div>
+    <nav class="brand-switch" id="brand-switch"></nav>
+  </header>
+
+  <div class="layout">
+    <main>
+      <section class="persona-bar">
+        <span class="label">Signed in as</span>
+        <div class="personas" id="personas"></div>
+      </section>
+      <section class="cards" id="cards"></section>
+    </main>
+
+    <aside class="inspector">
+      <div class="inspector-head">
+        <h2>Feature flags</h2>
+        <span class="mode" id="mode"></span>
+      </div>
+      <p class="hint" id="mode-hint"></p>
+      <ul class="flags" id="flags"></ul>
+      <div class="inspector-actions">
+        <button id="refresh" type="button">Fetch from Unify</button>
+        <button id="settings" type="button" class="ghost">SDK key…</button>
+      </div>
+    </aside>
+  </div>
+
+  <dialog id="key-dialog">
+    <form method="dialog">
+      <h3>Connect to CloudBees Unify</h3>
+      <p>Paste the SDK key for <strong id="key-app"></strong> (Unify → Feature management → Flags → Installation). Leave it empty to use local demo mode.</p>
+      <input id="key-input" type="text" placeholder="SDK key" autocomplete="off" spellcheck="false">
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Cancel</button>
+        <button value="save" id="key-save">Save and reload</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
