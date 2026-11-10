@@ -181,11 +181,27 @@ jobs:
           default: true
     timeout-minutes: 60
     delegates: cloudbees-io/manual-approval/custom-job.yml@v1
+  # Every check passed: policy approves, no human. A separate job, because a
+  # job that needs the skipped approval gate is skipped too, and takes package with it.
+  ai-guardrail-policy-pass:
+    needs:
+      - ai-change-guardrail
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' && needs.ai-change-guardrail.outputs.needs-human == 'no' }}
+    steps:
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## AI change guardrail — result
+            - AI-assisted: **yes** (${{ needs.ai-change-guardrail.outputs.reason }})
+            - Secret scan: clean. Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}). GitHub Actions: ${{ needs.ai-change-guardrail.outputs.external-ci }}
+            - Human approval: **not required**, every policy check passed
+            - Result: **approved by policy**, artifact registration allowed
   ai-guardrail-enforce:
     needs:
       - ai-change-guardrail
       - ai-guardrail-approval
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' }}
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' && needs.ai-change-guardrail.outputs.needs-human == 'yes' }}
     steps:
       - name: Enforce clean secret scan or approved exception
         id: enforce
@@ -198,25 +214,10 @@ jobs:
           CHANGED: ${{ needs.ai-change-guardrail.outputs.changed-lines }}
           CHURN: ${{ needs.ai-change-guardrail.outputs.churn }}
           EXT_CI: ${{ needs.ai-change-guardrail.outputs.external-ci }}
-          NEEDS_HUMAN: ${{ needs.ai-change-guardrail.outputs.needs-human }}
           # Empty when the approval gate was skipped, so parse it here rather than with fromJSON.
           APPROVAL: ${{ needs.ai-guardrail-approval.outputs.approvalInputValues }}
         run: |
           approval_value() { echo "$APPROVAL" | grep -o "\"$1\": *\"\?[a-z]*" | sed 's/.*[": ]//'; }
-          if [ "$AI" != "yes" ]; then
-            printf '%s' "- AI-assisted: **no** ($REASON)
-          - Result: standard pipeline, AI guardrails not required" > "$CLOUDBEES_OUTPUTS/summary"
-            echo "Not AI-assisted: guardrails not required."
-            exit 0
-          fi
-          if [ "$NEEDS_HUMAN" = "no" ]; then
-            printf '%s' "- AI-assisted: **yes** ($REASON)
-          - Secret scan: clean. Churn: $CHANGED lines ($CHURN). GitHub Actions: $EXT_CI
-          - Human approval: **not required**, every policy check passed
-          - Result: **approved by policy**, artifact registration allowed" > "$CLOUDBEES_OUTPUTS/summary"
-            echo "AI guardrail: all checks passed, approved by policy."
-            exit 0
-          fi
           EXCEPTION=$(approval_value security-exception-granted)
           CHURN_REVIEWED=$(approval_value churn-reviewed)
           echo "Secret findings: $FINDINGS, security exception granted: ${EXCEPTION:-none}"
@@ -328,9 +329,10 @@ jobs:
             - Tests: 14/16 passed, 1 failed (`test_retry_on_gateway_timeout`), 1 skipped
     needs:
       - security-scan
+      - ai-guardrail-policy-pass
       - ai-guardrail-enforce
-    # Unify still runs this job when ai-guardrail-enforce is skipped, and skips it
-    # when enforce fails, so no if condition is needed.
+    # Unify still runs this job when a guardrail job's own if is false, and
+    # skips it when enforce fails, so no if condition is needed.
     outputs:
       artifact-id: ${{ steps.register-artifact.outputs.artifact-id }}
       artifact-version: 1.4.${{ cloudbees.run_number }}
