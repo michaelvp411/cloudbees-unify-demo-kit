@@ -13,10 +13,17 @@ policy:
       # Explicit marker in the commit message, e.g. "[ai-generated]"
       labelPattern: "ai-generated"
     guardrails:
-      # false = report-only: AI changes are detected and logged as evidence, but
-      # the approval gate and enforcement are skipped. Set true for the demo.
-      enforceGuardrails: false
+      # false = report-only: AI changes are detected and logged as evidence,
+      # but nothing is gated.
+      enforceGuardrails: true
+      # Checks run on every AI-assisted change. All pass: the change ships with
+      # no human in the loop. Any fails (or its evidence is missing): a human
+      # reviews it, and a secret finding also needs an explicit exception.
+      # The secret scan covers the lines this change adds to src/.
       requireCleanSecretScan: true
-      requireHumanApproval: true
       maxChangedLines: 400
-  demoTalkingPoint: Use this to discuss how platform teams can enable AI while maintaining control and auditability.
+      # Evidence from another CI on the same commit: this GitHub Actions
+      # workflow must have succeeded.
+      externalCiRepo: michaelvp411/cloudbees-unify-demo-kit
+      externalCiWorkflow: External CI - Build Test Scan
+  demoTalkingPoint: AI reviews the code, policy decides when that is enough, humans own the exceptions.

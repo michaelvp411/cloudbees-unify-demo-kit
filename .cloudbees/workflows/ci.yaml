@@ -46,8 +46,10 @@ jobs:
             - Status: **ready**
   # AI change guardrail: enforces the aiAssistedChanges section of
   # policies/ai-governance-policy.yaml. AI-assisted commits (detected from
-  # commit trailers or an [ai-generated] marker) get a secret scan, a churn
-  # check, and a required human approval before the artifact is registered.
+  # commit trailers or an [ai-generated] marker) get three checks: a secret
+  # scan of the lines they add, a churn limit, and the GitHub Actions result
+  # for the same commit. All pass: the artifact is registered with no human.
+  # Any fails: a human reviews, and a secret needs an explicit exception.
   ai-change-guardrail:
     needs:
       - validate
@@ -65,7 +67,7 @@ jobs:
           # referencing cloudbees.event.inputs directly fails on push.
           EVENT_JSON: ${{ toJSON(cloudbees.event) }}
         run: |
-          apk add --no-cache git >/dev/null
+          apk add --no-cache git curl jq >/dev/null
           git config --global --add safe.directory '*'
           POLICY=policies/ai-governance-policy.yaml
           policy_value() { grep -m1 "^ *$1:" "$POLICY" | sed 's/^[^:]*: *//; s/^"//; s/"$//'; }
@@ -73,6 +75,8 @@ jobs:
           LABEL_PATTERN=$(policy_value labelPattern)
           MAX_LINES=$(policy_value maxChangedLines)
           ENFORCE=$(policy_value enforceGuardrails)
+          EXT_REPO=$(policy_value externalCiRepo)
+          EXT_WORKFLOW=$(policy_value externalCiWorkflow)
 
           MSG=$(git log -1 --format=%B)
           AI=no
@@ -88,20 +92,45 @@ jobs:
             no)  AI=no;  REASON="manual override (workflow input)" ;;
           esac
 
-          # Secret scan: hardcoded credentials in source.
-          SECRETS=$(grep -rniE '(password|passwd|secret|api[_-]?key|token) *= *"[^"]+"' src/ | wc -l | tr -d ' ')
-
-          # Churn: lines added + deleted by this commit.
+          # Secret scan: hardcoded credentials this change adds to src/.
+          # Pre-existing ones are the Security tab's job, not this change's.
+          SECRETS=0
           CHANGED=0
           if git rev-parse -q --verify HEAD~1 >/dev/null; then
+            SECRETS=$(git diff -U0 HEAD~1 HEAD -- src/ | grep '^+[^+]' | grep -ciE '(password|passwd|secret|api[_-]?key|token) *= *"[^"]+"' || true)
+            # Churn: lines added + deleted by this commit.
             CHANGED=$(git diff --numstat HEAD~1 HEAD | awk '{s+=$1+$2} END {print s+0}')
           fi
           CHURN=ok
           [ "$CHANGED" -gt "$MAX_LINES" ] && CHURN=high
 
+          # External CI: the GitHub Actions run for this commit. Missing
+          # evidence counts as a failed check, so a human looks at it.
+          SHA=$(git rev-parse HEAD)
+          EXT_CI=missing
+          for i in 1 2 3 4 5 6 7 8; do
+            RUN=$(curl -fsS "https://api.github.com/repos/$EXT_REPO/actions/runs?head_sha=$SHA" 2>/dev/null \
+              | jq -r --arg w "$EXT_WORKFLOW" '[.workflow_runs[] | select(.name == $w)][0] | "\(.status) \(.conclusion)"' 2>/dev/null)
+            case "$RUN" in
+              "completed success") EXT_CI=success; break ;;
+              completed*) EXT_CI=failed; break ;;
+            esac
+            sleep 15
+          done
+
+          FAILED=""
+          [ "$SECRETS" != "0" ] && FAILED="$FAILED secret-scan"
+          [ "$CHURN" = "high" ] && FAILED="$FAILED churn"
+          [ "$EXT_CI" != "success" ] && FAILED="$FAILED external-ci"
+          FAILED=$(echo $FAILED)
+          NEEDS_HUMAN=no
+          [ -n "$FAILED" ] && NEEDS_HUMAN=yes
+
           echo "AI-assisted: $AI ($REASON)"
-          echo "Secret scan findings: $SECRETS"
+          echo "Secret scan (added lines): $SECRETS finding(s)"
           echo "Changed lines: $CHANGED (policy max $MAX_LINES) -> churn $CHURN"
+          echo "GitHub Actions '$EXT_WORKFLOW' on $SHA: $EXT_CI"
+          echo "Failed checks: ${FAILED:-none} -> human review needed: $NEEDS_HUMAN"
           # printf, not echo: a trailing newline breaks == comparisons in job if conditions.
           printf '%s' "$AI" > "$CLOUDBEES_OUTPUTS/ai-assisted"
           printf '%s' "$REASON" > "$CLOUDBEES_OUTPUTS/reason"
@@ -109,15 +138,20 @@ jobs:
           printf '%s' "$CHANGED" > "$CLOUDBEES_OUTPUTS/changed-lines"
           printf '%s' "$CHURN" > "$CLOUDBEES_OUTPUTS/churn"
           printf '%s' "$ENFORCE" > "$CLOUDBEES_OUTPUTS/enforce"
+          printf '%s' "$EXT_CI" > "$CLOUDBEES_OUTPUTS/external-ci"
+          printf '%s' "${FAILED:-none}" > "$CLOUDBEES_OUTPUTS/failed-checks"
+          printf '%s' "$NEEDS_HUMAN" > "$CLOUDBEES_OUTPUTS/needs-human"
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:
           content: |-
-            ## AI change guardrail — detection
+            ## AI change guardrail — checks
             - AI-assisted: **${{ steps.detect.outputs.ai-assisted }}** (${{ steps.detect.outputs.reason }})
             - Policy: `policies/ai-governance-policy.yaml` (aiAssistedChanges)
-            - Secret scan: ${{ steps.detect.outputs.secret-findings }} hardcoded credential(s) in `src/`
+            - Secret scan (lines added to `src/`): ${{ steps.detect.outputs.secret-findings }} finding(s)
             - Churn: ${{ steps.detect.outputs.changed-lines }} lines changed (${{ steps.detect.outputs.churn }})
+            - GitHub Actions "External CI - Build Test Scan" on this commit: **${{ steps.detect.outputs.external-ci }}**
+            - Failed checks: **${{ steps.detect.outputs.failed-checks }}**, human review needed: **${{ steps.detect.outputs.needs-human }}**
             - Enforcement: ${{ steps.detect.outputs.enforce }} (`enforceGuardrails` in the policy; false = report-only)
     outputs:
       ai-assisted: ${{ steps.detect.outputs.ai-assisted }}
@@ -126,13 +160,17 @@ jobs:
       changed-lines: ${{ steps.detect.outputs.changed-lines }}
       churn: ${{ steps.detect.outputs.churn }}
       enforce: ${{ steps.detect.outputs.enforce }}
+      external-ci: ${{ steps.detect.outputs.external-ci }}
+      failed-checks: ${{ steps.detect.outputs.failed-checks }}
+      needs-human: ${{ steps.detect.outputs.needs-human }}
+  # Only AI changes that failed a check reach a human.
   ai-guardrail-approval:
     needs:
       - ai-change-guardrail
       - security-scan
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' }}
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' && needs.ai-change-guardrail.outputs.needs-human == 'yes' }}
     with:
-      instructions: "AI-assisted change detected (${{ needs.ai-change-guardrail.outputs.reason }}). Secret scan: ${{ needs.ai-change-guardrail.outputs.secret-findings }} finding(s). Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}). Review the change. The artifact is registered only if the secret scan is clean or you grant a security exception."
+      instructions: "AI-assisted change (${{ needs.ai-change-guardrail.outputs.reason }}) failed policy checks: ${{ needs.ai-change-guardrail.outputs.failed-checks }}. Secrets added: ${{ needs.ai-change-guardrail.outputs.secret-findings }}. Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}). GitHub Actions: ${{ needs.ai-change-guardrail.outputs.external-ci }}. Review the change. If it adds a secret, the artifact is registered only if you grant a security exception."
       disallowLaunchByUser: false
       approvalInputs: |
         security-exception-granted:
@@ -159,6 +197,8 @@ jobs:
           FINDINGS: ${{ needs.ai-change-guardrail.outputs.secret-findings }}
           CHANGED: ${{ needs.ai-change-guardrail.outputs.changed-lines }}
           CHURN: ${{ needs.ai-change-guardrail.outputs.churn }}
+          EXT_CI: ${{ needs.ai-change-guardrail.outputs.external-ci }}
+          NEEDS_HUMAN: ${{ needs.ai-change-guardrail.outputs.needs-human }}
           # Empty when the approval gate was skipped, so parse it here rather than with fromJSON.
           APPROVAL: ${{ needs.ai-guardrail-approval.outputs.approvalInputValues }}
         run: |
@@ -169,6 +209,14 @@ jobs:
             echo "Not AI-assisted: guardrails not required."
             exit 0
           fi
+          if [ "$NEEDS_HUMAN" = "no" ]; then
+            printf '%s' "- AI-assisted: **yes** ($REASON)
+          - Secret scan: clean. Churn: $CHANGED lines ($CHURN). GitHub Actions: $EXT_CI
+          - Human approval: **not required**, every policy check passed
+          - Result: **approved by policy**, artifact registration allowed" > "$CLOUDBEES_OUTPUTS/summary"
+            echo "AI guardrail: all checks passed, approved by policy."
+            exit 0
+          fi
           EXCEPTION=$(approval_value security-exception-granted)
           CHURN_REVIEWED=$(approval_value churn-reviewed)
           echo "Secret findings: $FINDINGS, security exception granted: ${EXCEPTION:-none}"
@@ -177,8 +225,9 @@ jobs:
             exit 1
           fi
           printf '%s' "- AI-assisted: **yes** ($REASON)
-          - Human approval: **approved**
+          - Human approval: **approved** (failed checks needed review)
           - Secret scan: $FINDINGS finding(s), security exception granted: ${EXCEPTION:-n/a}
+          - GitHub Actions: $EXT_CI
           - Churn: $CHANGED lines ($CHURN), reviewed: ${CHURN_REVIEWED:-n/a}
           - Result: **guardrails applied**, artifact registration allowed" > "$CLOUDBEES_OUTPUTS/summary"
           echo "AI guardrail passed."
@@ -188,34 +237,9 @@ jobs:
           content: |-
             ## AI change guardrail — result
             ${{ steps.enforce.outputs.summary }}
-  # SIMULATED: illustrates CloudBees Smart Tests (formerly Launchable)
-  # predictive test selection. No Smart Tests service is called; the numbers
-  # below are illustrative, not measured.
-  smart-test-selection:
-    needs:
-      - validate
-    steps:
-      - name: Select tests for this change (simulated)
-        kind: test
-        uses: docker://alpine:3.20
-        shell: sh
-        run: |
-          echo "SIMULATED: CloudBees Smart Tests predictive test selection"
-          echo "Full suite:     1,200 tests, ~47 min"
-          echo "Selected subset:  260 tests, ~10 min (ranked by likelihood of catching a failure for this change)"
-      - name: Publish evidence
-        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
-        with:
-          content: |-
-            ## Smart test selection — SIMULATED
-            > Illustrative numbers. This step does not call CloudBees Smart Tests.
-            - Product: CloudBees Smart Tests (formerly Launchable), predictive test selection
-            - Full suite: 1,200 tests, ~47 min
-            - Selected for this change: 260 tests, ~10 min (~79% less test time; CloudBees cites up to 80%)
-            - Skipped tests stay visible: Smart Tests reports what ran, what was skipped, and why
   unit-tests:
     needs:
-      - smart-test-selection
+      - validate
     steps:
       - name: Checkout source
         uses: https://github.com/cloudbees-io/checkout@v1
@@ -231,6 +255,24 @@ jobs:
         with:
           test-type: JUNIT
           results-path: test-reports/junit.xml
+      # Same results to CloudBees Smart Tests, which tracks flaky tests and
+      # trends across builds from every CI (GitHub Actions sends them too).
+      # Needs the SMART_TESTS_TOKEN secret in Unify; skipped with a note if unset.
+      - name: Record results in Smart Tests
+        uses: docker://python:3.12-slim
+        shell: sh
+        env:
+          SMART_TESTS_TOKEN: ${{ secrets.SMART_TESTS_TOKEN }}
+        run: |
+          if [ -z "$SMART_TESTS_TOKEN" ]; then
+            echo "SMART_TESTS_TOKEN not set in Unify: skipping Smart Tests recording"
+            exit 0
+          fi
+          pip install -q smart-tests-cli
+          BUILD="orders-api-1.4.${{ cloudbees.run_number }}-unify"
+          smart-tests record build --build "$BUILD" --branch main --no-commit-collection --commit "cloudbees-unify-demo-kit=${{ cloudbees.scm.sha }}"
+          smart-tests record session --build "$BUILD" --test-suite unit > session.txt
+          smart-tests record tests --session @session.txt pytest test-reports/junit.xml
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:
@@ -251,18 +293,17 @@ jobs:
         uses: docker://alpine:3.20
         shell: sh
         run: |
-          echo "CloudBees Unify automatically scans connected repositories for"
-          echo "secrets and vulnerabilities."
-          echo "Findings appear in the component's Security tab — including the"
-          echo "hardcoded credential intentionally added in src/config.py."
+          echo "CloudBees Unify scans this repository on every push, whichever CI builds it:"
+          echo "Gitleaks (secrets), Checkov (infrastructure as code), SCC."
+          echo "Findings appear in the component's Security tab."
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:
           content: |-
             ## Security — automatic scanning
-            CloudBees Unify automatically scans this repository. Findings — including
-            the **hardcoded credential** in `src/config.py` — are shown in the
-            component's **Security** tab for triage and remediation tracking.
+            CloudBees Unify scans this repository on every push, whichever CI builds it
+            (Gitleaks for secrets, Checkov for infrastructure as code, SCC). Findings
+            are in the component's **Security** tab for triage and remediation tracking.
   package:
     steps:
       - name: Checkout source
@@ -275,12 +316,10 @@ jobs:
           mkdir -p build
           cat > build/release-metadata.json <<JSON
           {
-            "application": "customer-portal",
+            "application": "finsure-mobile-banking",
             "component": "orders-api",
             "version": "1.4.${{ cloudbees.run_number }}",
             "commit": "${{ cloudbees.scm.sha }}",
-            "scenario": "candidate-demo",
-            "securityPolicy": "1 open finding",
             "testStatus": "14/16 passed, 1 failed, 1 skipped"
           }
           JSON
@@ -297,13 +336,13 @@ jobs:
         with:
           content: |-
             ## Package — build metadata + registered artifact
-            - Application: customer-portal
+            - Application: finsure-mobile-banking
             - Component: orders-api
             - Version: 1.4.${{ cloudbees.run_number }}
             - Registered artifact ID: ${{ steps.register-artifact.outputs.artifact-id }}
             - Artifact URL: docker.io/cloudbeesdemo/orders-api:1.4.${{ cloudbees.run_number }}
             - Commit: ${{ cloudbees.scm.sha }}
-            - Security: 1 open finding (hardcoded credential), see Security tab
+            - Security: see the Security tab
             - Tests: 14/16 passed, 1 failed (`test_retry_on_gateway_timeout`), 1 skipped
     needs:
       - security-scan

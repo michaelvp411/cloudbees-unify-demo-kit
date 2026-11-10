@@ -21,17 +21,17 @@ jobs:
           echo "orders-api unit tests: 14 passed, 1 failed (test_retry_on_gateway_timeout), 1 skipped"
       - name: Security scan placeholder
         run: |
-          echo "Secrets: 1 hardcoded credential (src/config.py)"
+          echo "Secret and IaC scanning: CloudBees Unify scans this repo on push (see the Security tab)"
       - name: Publish release evidence
         run: |
           cat > release-evidence.json <<JSON
           {
-            "application": "customer-portal",
+            "application": "finsure-mobile-banking",
             "component": "orders-api",
             "build": "${{ github.run_number }}",
             "commit": "${{ github.sha }}",
             "tests": "14/16 passed, 1 failed, 1 skipped",
-            "security": "1 open finding"
+            "security": "see Unify Security tab"
           }
           JSON
           cat release-evidence.json

@@ -1,0 +1,33 @@
+jenkins:
+  systemMessage: "CloudBees Unify demo kit: external Jenkins CI for orders-api"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+unclassified:
+  location:
+    url: "http://localhost:8080/"
+jobs:
+  - script: |
+      pipelineJob('orders-api-ci') {
+        description('Build, test and scan orders-api from the Jenkinsfile in this repo')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('${DEMO_REPO_URL:-https://github.com/michaelvp411/cloudbees-unify-demo-kit.git}') }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+        triggers { scm('H/5 * * * *') }
+      }
