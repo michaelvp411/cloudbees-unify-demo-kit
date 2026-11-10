@@ -1,0 +1,143 @@
+apiVersion: automation.cloudbees.io/v1alpha1
+kind: workflow
+name: demo-seed
+
+# Demo data seeder. Run it by hand (Run workflow) to populate:
+# - SBOM tab: Syft SBOM of a container image
+# - Security center: Trivy + Grype findings (critical/high/medium/low)
+# - Artifacts: payments-api and web-frontend
+# - Environment inventory: both artifacts deployed to qa and staging
+#
+# The scanned image is a deliberately old public nginx (Debian buster base),
+# so the CVEs are real ones, not invented. Nothing is deployed anywhere.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan-image:
+        type: string
+        description: Old public image to scan (more CVEs = fuller Security center)
+        default: docker.io/library/nginx:1.19
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  sbom:
+    steps:
+      - name: Export image as a tarball
+        uses: docker://quay.io/skopeo/stable:v1.16
+        shell: sh
+        run: |
+          skopeo copy --insecure-policy "docker://${{ inputs.scan-image }}" \
+            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:${{ inputs.scan-image }}"
+          ls -lh "$CLOUDBEES_WORKSPACE/image.tar"
+      - name: Generate SBOM with Syft
+        uses: https://github.com/cloudbees-io/syft-sbom-plugin@v1
+        with:
+          binary-tar-path: image.tar
+
+  trivy-scan:
+    steps:
+      - name: Export image as a tarball
+        uses: docker://quay.io/skopeo/stable:v1.16
+        shell: sh
+        run: |
+          skopeo copy --insecure-policy "docker://${{ inputs.scan-image }}" \
+            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:${{ inputs.scan-image }}"
+      - name: Scan with Trivy
+        id: trivy
+        uses: https://github.com/cloudbees-io/trivy-plugin@v2
+        with:
+          binary-tar-path: image.tar
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Container scan — Trivy (${{ inputs.scan-image }})
+            - Critical: ${{ steps.trivy.outputs.critical-count }}
+            - High: ${{ steps.trivy.outputs.high-count }}
+            - Medium: ${{ steps.trivy.outputs.medium-count }}
+            - Low: ${{ steps.trivy.outputs.low-count }}
+            - Details in the component's **Security** tab
+
+  grype-scan:
+    steps:
+      - name: Export image as a tarball
+        uses: docker://quay.io/skopeo/stable:v1.16
+        shell: sh
+        run: |
+          skopeo copy --insecure-policy "docker://${{ inputs.scan-image }}" \
+            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:${{ inputs.scan-image }}"
+      - name: Scan with Grype
+        id: grype
+        uses: https://github.com/cloudbees-io/grype-plugin@v1
+        with:
+          binary-tar-path: image.tar
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Container scan — Grype (${{ inputs.scan-image }})
+            - Critical: ${{ steps.grype.outputs.critical-count }}
+            - High: ${{ steps.grype.outputs.high-count }}
+            - Medium: ${{ steps.grype.outputs.medium-count }}
+            - Low: ${{ steps.grype.outputs.low-count }}
+
+  register-artifacts:
+    steps:
+      - name: Register payments-api
+        id: payments
+        uses: cloudbees-io/register-build-artifact@v2
+        with:
+          name: payments-api
+          version: 2.3.${{ cloudbees.run_number }}
+          url: docker.io/cloudbeesdemo/payments-api:2.3.${{ cloudbees.run_number }}
+          type: docker
+          labels: demo-seed
+      - name: Register web-frontend
+        id: web
+        uses: cloudbees-io/register-build-artifact@v2
+        with:
+          name: web-frontend
+          version: 3.1.${{ cloudbees.run_number }}
+          url: docker.io/cloudbeesdemo/web-frontend:3.1.${{ cloudbees.run_number }}
+          type: docker
+          labels: demo-seed
+    outputs:
+      payments-id: ${{ steps.payments.outputs.artifact-id }}
+      web-id: ${{ steps.web.outputs.artifact-id }}
+
+  # Environments must already exist in Unify (Configurations > Environments).
+  deploy-inventory:
+    needs:
+      - register-artifacts
+    steps:
+      - name: payments-api to qa
+        uses: cloudbees-io/register-deployed-artifact@v2
+        with:
+          artifact-id: ${{ needs.register-artifacts.outputs.payments-id }}
+          target-environment: qa
+      - name: payments-api to staging
+        uses: cloudbees-io/register-deployed-artifact@v2
+        with:
+          artifact-id: ${{ needs.register-artifacts.outputs.payments-id }}
+          target-environment: staging
+      - name: web-frontend to qa
+        uses: cloudbees-io/register-deployed-artifact@v2
+        with:
+          artifact-id: ${{ needs.register-artifacts.outputs.web-id }}
+          target-environment: qa
+      - name: web-frontend to staging
+        uses: cloudbees-io/register-deployed-artifact@v2
+        with:
+          artifact-id: ${{ needs.register-artifacts.outputs.web-id }}
+          target-environment: staging
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Environment inventory (simulated deploys)
+            - payments-api 2.3.${{ cloudbees.run_number }} → qa, staging
+            - web-frontend 3.1.${{ cloudbees.run_number }} → qa, staging
