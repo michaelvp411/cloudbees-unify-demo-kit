@@ -271,7 +271,7 @@ jobs:
           BUILD="orders-api-1.4.${{ cloudbees.run_number }}-unify"
           smart-tests record build --build "$BUILD" --branch main --no-commit-collection --commit "cloudbees-unify-demo-kit=${{ cloudbees.scm.sha }}"
           smart-tests record session --build "$BUILD" --test-suite unit > session.txt
-          smart-tests record tests --session @session.txt pytest test-reports/junit.xml
+          smart-tests record tests --session @session.txt --allow-test-before-build pytest test-reports/junit.xml
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:

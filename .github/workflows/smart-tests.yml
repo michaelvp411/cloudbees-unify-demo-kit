@@ -28,7 +28,7 @@ jobs:
           BUILD="orders-api-1.4.${{ github.run_number }}"
           smart-tests record build --build "$BUILD" --branch main --source src=.
           smart-tests record session --build "$BUILD" --test-suite unit > session.txt
-          smart-tests record tests --session @session.txt pytest test-reports/junit.xml
+          smart-tests record tests --session @session.txt --allow-test-before-build pytest test-reports/junit.xml
       - name: Backfill history
         if: ${{ github.event_name == 'workflow_dispatch' && env.SMART_TESTS_TOKEN != '' }}
         run: python3 scripts/smart-tests-seed.py
