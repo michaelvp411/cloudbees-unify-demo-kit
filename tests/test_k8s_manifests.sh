@@ -19,6 +19,11 @@ test_service_selector_matches_pod_label() {
   assert_eq "$sel" "orders-api" "Service selector must select app=orders-api"
 }
 
+test_container_has_resource_limits() {
+  assert_grep '^[[:space:]]+limits:' "$D" "orders-api has no resources.limits; one noisy pod can starve the node"
+  assert_grep '^[[:space:]]+memory:' "$D" "orders-api has no memory limit"
+}
+
 test_image_is_templated() {
   assert_grep 'image: IMAGE_PLACEHOLDER' "$D" "image must stay IMAGE_PLACEHOLDER; the deploy job injects the tag"
 }
