@@ -8,7 +8,7 @@ name: demo-seed
 # - Artifacts: payments-api and web-frontend
 # - Environment inventory: both artifacts deployed to qa and staging
 #
-# The scanned image is a public postgres image chosen for its CVE mix,
+# The scanned image is a public debian image chosen for its CVE mix,
 # so the CVEs are real ones, not invented. Nothing is deployed anywhere.
 
 on:
@@ -17,10 +17,11 @@ on:
       scan-image:
         type: string
         description: Public image to scan for the Security center and SBOM
-        # postgres:16-alpine pinned by digest (2026-11-10). Checked locally:
-        # Trivy + Grype together report exactly 2 critical CVEs
-        # (CVE-2025-68121, CVE-2026-4738), ~43 high, ~42 medium, a few low.
-        default: docker.io/library/postgres@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+        # debian:bookworm-slim pinned by digest (2026-11-10). No Go binaries
+        # inside (postgres:16-alpine's gosu added 6 Go-stdlib criticals in
+        # Unify's Grype). Locally: Grype 1 critical CVE (libc), Trivy 1
+        # (zlib); the rest high/medium/low.
+        default: docker.io/library/debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 
 permissions:
   id-token: write
