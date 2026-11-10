@@ -8,7 +8,7 @@ name: demo-seed
 # - Artifacts: payments-api and web-frontend
 # - Environment inventory: both artifacts deployed to qa and staging
 #
-# The scanned image is a deliberately old public nginx (Debian buster base),
+# The scanned image is a public postgres image chosen for its CVE mix,
 # so the CVEs are real ones, not invented. Nothing is deployed anywhere.
 
 on:
@@ -16,8 +16,11 @@ on:
     inputs:
       scan-image:
         type: string
-        description: Old public image to scan (more CVEs = fuller Security center)
-        default: docker.io/library/nginx:1.19
+        description: Public image to scan for the Security center and SBOM
+        # postgres:16-alpine pinned by digest (2026-11-10). Checked locally:
+        # Trivy + Grype together report exactly 2 critical CVEs
+        # (CVE-2025-68121, CVE-2026-4738), ~43 high, ~42 medium, a few low.
+        default: docker.io/library/postgres@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
 
 permissions:
   id-token: write
@@ -31,7 +34,7 @@ jobs:
         shell: sh
         run: |
           skopeo copy --insecure-policy "docker://${{ inputs.scan-image }}" \
-            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:${{ inputs.scan-image }}"
+            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:scan-target:latest"
           ls -lh "$CLOUDBEES_WORKSPACE/image.tar"
       # Inlined cloudbees-io/syft-sbom-plugin@v1: every tag of that action pins
       # assets-syft-sbom:9f83442..., which has been removed from the registry
@@ -69,7 +72,7 @@ jobs:
         shell: sh
         run: |
           skopeo copy --insecure-policy "docker://${{ inputs.scan-image }}" \
-            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:${{ inputs.scan-image }}"
+            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:scan-target:latest"
       - name: Scan with Trivy
         id: trivy
         uses: https://github.com/cloudbees-io/trivy-plugin@v2
@@ -93,7 +96,7 @@ jobs:
         shell: sh
         run: |
           skopeo copy --insecure-policy "docker://${{ inputs.scan-image }}" \
-            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:${{ inputs.scan-image }}"
+            "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:scan-target:latest"
       - name: Scan with Grype
         id: grype
         uses: https://github.com/cloudbees-io/grype-plugin@v1
