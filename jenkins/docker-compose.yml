@@ -11,6 +11,7 @@ services:
       JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?Set JENKINS_ADMIN_PASSWORD in jenkins/.env}
       JENKINS_URL: ${JENKINS_URL:-http://localhost:8080/}
       GITHUB_OWNER: ${GITHUB_OWNER:-michaelvp411}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?Set GITHUB_TOKEN in jenkins/.env (see .env.example)}
       GITHUB_REPO: ${GITHUB_REPO:-cloudbees-unify-demo-kit}
     volumes:
       - jenkins_home:/var/jenkins_home

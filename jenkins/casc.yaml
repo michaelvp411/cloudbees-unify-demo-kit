@@ -27,6 +27,7 @@ jobs:
                 repository('${GITHUB_REPO:-cloudbees-unify-demo-kit}')
                 repositoryUrl('https://github.com/${GITHUB_OWNER:-michaelvp411}/${GITHUB_REPO:-cloudbees-unify-demo-kit}')
                 configuredByUrl(true)
+                credentialsId('github')
                 traits {
                   gitHubBranchDiscovery { strategyId(1) }
                   gitHubPullRequestDiscovery { strategyId(1) }
