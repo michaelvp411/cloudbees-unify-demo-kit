@@ -9,7 +9,9 @@ services:
     environment:
       JENKINS_ADMIN_ID: ${JENKINS_ADMIN_ID:-admin}
       JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?Set JENKINS_ADMIN_PASSWORD in jenkins/.env}
-      DEMO_REPO_URL: ${DEMO_REPO_URL:-https://github.com/michaelvp411/cloudbees-unify-demo-kit.git}
+      JENKINS_URL: ${JENKINS_URL:-http://localhost:8080/}
+      GITHUB_OWNER: ${GITHUB_OWNER:-michaelvp411}
+      GITHUB_REPO: ${GITHUB_REPO:-cloudbees-unify-demo-kit}
     volumes:
       - jenkins_home:/var/jenkins_home
 volumes:

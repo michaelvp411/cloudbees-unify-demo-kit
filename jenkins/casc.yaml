@@ -12,22 +12,29 @@ jenkins:
       allowAnonymousRead: false
 unclassified:
   location:
-    url: "http://localhost:8080/"
+    url: "${JENKINS_URL:-http://localhost:8080/}"
 jobs:
+  # Multibranch with a GitHub branch source: the only job shape CloudBees Unify tracks.
   - script: |
-      pipelineJob('orders-api-ci') {
-        description('Build, test and scan orders-api from the Jenkinsfile in this repo')
-        definition {
-          cpsScm {
-            scm {
-              git {
-                remote { url('${DEMO_REPO_URL:-https://github.com/michaelvp411/cloudbees-unify-demo-kit.git}') }
-                branch('*/main')
+      multibranchPipelineJob('orders-api') {
+        description('orders-api CI from the Jenkinsfile in this repo, reported to CloudBees Unify')
+        branchSources {
+          branchSource {
+            source {
+              github {
+                id('orders-api')
+                repoOwner('${GITHUB_OWNER:-michaelvp411}')
+                repository('${GITHUB_REPO:-cloudbees-unify-demo-kit}')
+                repositoryUrl('https://github.com/${GITHUB_OWNER:-michaelvp411}/${GITHUB_REPO:-cloudbees-unify-demo-kit}')
+                configuredByUrl(true)
+                traits {
+                  gitHubBranchDiscovery { strategyId(1) }
+                  gitHubPullRequestDiscovery { strategyId(1) }
+                }
               }
             }
-            scriptPath('Jenkinsfile')
-            lightweight(true)
           }
         }
-        triggers { scm('H/5 * * * *') }
+        factory { workflowBranchProjectFactory { scriptPath('Jenkinsfile') } }
+        triggers { periodicFolderTrigger { interval('5m') } }
       }

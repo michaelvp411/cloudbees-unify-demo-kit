@@ -1,0 +1,18 @@
+# Installed at image build time by jenkins-plugin-cli (dependencies resolved automatically).
+plugins:
+  - artifactId: configuration-as-code
+  - artifactId: job-dsl
+  - artifactId: workflow-aggregator
+  - artifactId: pipeline-stage-view
+  - artifactId: git
+  - artifactId: github-branch-source
+  - artifactId: junit
+  - artifactId: timestamper
+  # CloudBees Unify Integration :: Controllers. Published only on the CloudBees
+  # update site, not the public Jenkins one. Unify sees Multibranch jobs only.
+  - artifactId: cloudbees-cbp-unify-common
+    source:
+      url: https://jenkins-updates.cloudbees.com/download/plugins/cloudbees-cbp-unify-common/1.1975/cloudbees-cbp-unify-common.hpi
+  - artifactId: cloudbees-cbp-unify-integration
+    source:
+      url: https://jenkins-updates.cloudbees.com/download/plugins/cloudbees-cbp-unify-integration/1.1975/cloudbees-cbp-unify-integration.hpi
