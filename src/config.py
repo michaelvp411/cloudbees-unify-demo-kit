@@ -15,6 +15,11 @@ DB_USER = "orders_service"
 # Hardcoded password — intentional demo finding.
 DB_PASSWORD = "P@ssw0rd123!"
 
+# Payment gateway used by checkout retries.
+PAYMENT_GATEWAY_URL = "https://payments.internal.example.com/v2"
+PAYMENT_GATEWAY_API_KEY = "pgw-demo-7c41e2a9d03b"
+PAYMENT_GATEWAY_TIMEOUT_SECONDS = 5
+
 
 def database_url():
     return f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
