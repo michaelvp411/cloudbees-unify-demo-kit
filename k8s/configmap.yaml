@@ -6,3 +6,5 @@ data:
   feature.releaseOrchestration: "enabled"
   feature.auditEvidence: "enabled"
   feature.aiGovernance: "enabled"
+  orders.pageSize: "50"
+  orders.maxPageSize: "200"
