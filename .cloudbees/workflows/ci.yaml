@@ -261,7 +261,7 @@ jobs:
       # Needs the SMART_TESTS_TOKEN secret in Unify: Unify fails the whole
       # workflow if it is missing.
       - name: Record results in Smart Tests
-        uses: docker://python:3.12-slim
+        uses: docker://python:3.13-slim
         shell: sh
         env:
           SMART_TESTS_TOKEN: ${{ secrets.SMART_TESTS_TOKEN }}
