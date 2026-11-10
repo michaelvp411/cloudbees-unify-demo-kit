@@ -256,6 +256,21 @@ jobs:
         with:
           test-type: JUNIT
           results-path: test-reports/junit.xml
+      # Same results to CloudBees Smart Tests, which tracks flaky tests and
+      # trends across builds from every CI (GitHub Actions sends them too).
+      # Needs the SMART_TESTS_TOKEN secret in Unify: Unify fails the whole
+      # workflow if it is missing.
+      - name: Record results in Smart Tests
+        uses: docker://python:3.12-slim
+        shell: sh
+        env:
+          SMART_TESTS_TOKEN: ${{ secrets.SMART_TESTS_TOKEN }}
+        run: |
+          pip install -q smart-tests-cli
+          BUILD="orders-api-1.4.${{ cloudbees.run_number }}-unify"
+          smart-tests record build --build "$BUILD" --branch main --no-commit-collection --commit "cloudbees-unify-demo-kit=${{ cloudbees.scm.sha }}"
+          smart-tests record session --build "$BUILD" --test-suite unit > session.txt
+          smart-tests record tests --session @session.txt pytest test-reports/junit.xml
       - name: Publish evidence
         uses: https://github.com/cloudbees-io/publish-evidence-item@v1
         with:
