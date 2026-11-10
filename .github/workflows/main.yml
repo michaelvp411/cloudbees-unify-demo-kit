@@ -1,8 +1,7 @@
-name: QA smoke tests and flag sync
+name: QA smoke tests
 # The QA team's GitHub Actions workflow. Unify picks up its runs next to the
-# Unify-native CI. With the ROX_SDK_KEY secret set (copy it from Unify:
-# Feature management > Flags > FinSure Payments Platform), it also registers
-# the release's feature flags so they appear in Unify.
+# Unify-native CI. The release's feature flags live in Unify under
+# FinSure Payments Platform.
 on:
   push:
     branches: [ main ]
@@ -10,8 +9,6 @@ on:
 jobs:
   qa-smoke:
     runs-on: ubuntu-latest
-    env:
-      ROX_SDK_KEY: ${{ secrets.ROX_SDK_KEY }}
     steps:
       - uses: actions/checkout@v4
       - name: Smoke tests
@@ -19,24 +16,3 @@ jobs:
           echo "orders-api smoke: GET /health -> 200"
           echo "orders-api smoke: POST /orders -> 201"
           echo "checkout smoke:   payment gateway timeout path -> retried 2/3 (known failure)"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Register feature flags with CloudBees Unify
-        run: |
-          if [ -z "$ROX_SDK_KEY" ]; then
-            echo "::warning::ROX_SDK_KEY is empty: add it under Settings > Secrets and variables > Actions > Repository secrets"
-            exit 0
-          fi
-          echo "ROX_SDK_KEY present (${#ROX_SDK_KEY} chars)"
-          npm install --no-save rox-node >/dev/null
-          node -e '
-            const Rox = require("rox-node");
-            Rox.register("payments", { gatewayRetryV2: new Rox.Flag(false) });
-            Rox.register("checkout", { newFlow: new Rox.Flag(false) });
-            Rox.register("notifications", { smsFallback: new Rox.Flag(true) });
-            Rox.setup(process.env.ROX_SDK_KEY).then(() => {
-              console.log("Flags registered");
-              setTimeout(() => process.exit(0), 3000);
-            });
-          '
