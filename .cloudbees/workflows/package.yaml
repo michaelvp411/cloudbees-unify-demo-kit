@@ -1,0 +1,85 @@
+apiVersion: automation.cloudbees.io/v1alpha1
+kind: workflow
+name: package
+
+# Registers the orders-api artifact and lands it in qa. Called by ci.yaml from
+# two places: after the policy approves a change on its own, and after a human
+# review. Unify skips any job that needs a skipped job, so each path calls this
+# with no dependency on the other.
+
+on:
+  workflow_call:
+    inputs:
+      approved-by:
+        type: string
+        required: true
+
+jobs:
+  package:
+    steps:
+      - name: Checkout source
+        uses: https://github.com/cloudbees-io/checkout@v1
+      - name: Create build metadata
+        kind: build
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          mkdir -p build
+          cat > build/release-metadata.json <<JSON
+          {
+            "application": "finsure-mobile-banking",
+            "component": "orders-api",
+            "version": "1.4.${{ cloudbees.run_number }}",
+            "commit": "${{ cloudbees.scm.sha }}",
+            "approvedBy": "${{ inputs.approved-by }}",
+            "testStatus": "14/16 passed, 1 failed, 1 skipped"
+          }
+          JSON
+          cat build/release-metadata.json
+      - name: Register build artifact
+        id: register-artifact
+        uses: cloudbees-io/register-build-artifact@v2
+        with:
+          name: orders-api
+          version: 1.4.${{ cloudbees.run_number }}
+          url: docker.io/cloudbeesdemo/orders-api:1.4.${{ cloudbees.run_number }}
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Package — build metadata + registered artifact
+            - Application: finsure-mobile-banking
+            - Component: orders-api
+            - Version: 1.4.${{ cloudbees.run_number }}
+            - Registered artifact ID: ${{ steps.register-artifact.outputs.artifact-id }}
+            - Artifact URL: docker.io/cloudbeesdemo/orders-api:1.4.${{ cloudbees.run_number }}
+            - Commit: ${{ cloudbees.scm.sha }}
+            - Approved by: **${{ inputs.approved-by }}**
+            - Security: see the Security tab
+            - Tests: 14/16 passed, 1 failed (`test_retry_on_gateway_timeout`), 1 skipped
+    outputs:
+      artifact-id: ${{ steps.register-artifact.outputs.artifact-id }}
+  # Every packaged build lands in qa, so the environment inventory and the
+  # artifact's "deployed to" history are populated without running a release.
+  deploy-qa:
+    needs:
+      - package
+    steps:
+      - name: Simulate qa deployment
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          echo "Deploying orders-api 1.4.${{ cloudbees.run_number }} to qa (simulated)"
+      - name: Register deployed artifact
+        uses: cloudbees-io/register-deployed-artifact@v2
+        with:
+          artifact-id: ${{ needs.package.outputs.artifact-id }}
+          target-environment: qa
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Deployment — qa (simulated)
+            - Artifact: orders-api 1.4.${{ cloudbees.run_number }}
+            - Environment: qa
+            - Registered in the environment inventory

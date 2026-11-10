@@ -181,8 +181,8 @@ jobs:
           default: true
     timeout-minutes: 60
     delegates: cloudbees-io/manual-approval/custom-job.yml@v1
-  # Every check passed: policy approves, no human. A separate job, because a
-  # job that needs the skipped approval gate is skipped too, and takes package with it.
+  # Every check passed: policy approves, no human. Records the decision; the
+  # package job below runs on the same condition.
   ai-guardrail-policy-pass:
     needs:
       - ai-change-guardrail
@@ -287,76 +287,22 @@ jobs:
             CloudBees Unify scans this repository on every push, whichever CI builds it
             (Gitleaks for secrets, Checkov for infrastructure as code, SCC). Findings
             are in the component's **Security** tab for triage and remediation tracking.
+  # Not gated (not AI-assisted, report-only, or every check passed): package now.
   package:
-    steps:
-      - name: Checkout source
-        uses: https://github.com/cloudbees-io/checkout@v1
-      - name: Create build metadata
-        kind: build
-        uses: docker://alpine:3.20
-        shell: sh
-        run: |
-          mkdir -p build
-          cat > build/release-metadata.json <<JSON
-          {
-            "application": "finsure-mobile-banking",
-            "component": "orders-api",
-            "version": "1.4.${{ cloudbees.run_number }}",
-            "commit": "${{ cloudbees.scm.sha }}",
-            "testStatus": "14/16 passed, 1 failed, 1 skipped"
-          }
-          JSON
-          cat build/release-metadata.json
-      - name: Register build artifact
-        id: register-artifact
-        uses: cloudbees-io/register-build-artifact@v2
-        with:
-          name: orders-api
-          version: 1.4.${{ cloudbees.run_number }}
-          url: docker.io/cloudbeesdemo/orders-api:1.4.${{ cloudbees.run_number }}
-      - name: Publish evidence
-        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
-        with:
-          content: |-
-            ## Package — build metadata + registered artifact
-            - Application: finsure-mobile-banking
-            - Component: orders-api
-            - Version: 1.4.${{ cloudbees.run_number }}
-            - Registered artifact ID: ${{ steps.register-artifact.outputs.artifact-id }}
-            - Artifact URL: docker.io/cloudbeesdemo/orders-api:1.4.${{ cloudbees.run_number }}
-            - Commit: ${{ cloudbees.scm.sha }}
-            - Security: see the Security tab
-            - Tests: 14/16 passed, 1 failed (`test_retry_on_gateway_timeout`), 1 skipped
     needs:
       - security-scan
-      - ai-guardrail-policy-pass
-      - ai-guardrail-enforce
-    # Unify still runs this job when a guardrail job's own if is false, and
-    # skips it when enforce fails, so no if condition is needed.
-    outputs:
-      artifact-id: ${{ steps.register-artifact.outputs.artifact-id }}
-      artifact-version: 1.4.${{ cloudbees.run_number }}
-  # Every green build lands in qa, so the environment inventory and the
-  # artifact's "deployed to" history are populated without running a release.
-  deploy-qa:
+      - ai-change-guardrail
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted != 'yes' || needs.ai-change-guardrail.outputs.enforce != 'true' || needs.ai-change-guardrail.outputs.needs-human == 'no' }}
+    uses: ./.cloudbees/workflows/package.yaml
+    with:
+      approved-by: automatic (no review required by policy)
+  # Gated: package only after a human reviewed it and enforce passed.
+  package-after-review:
     needs:
-      - package
-    steps:
-      - name: Simulate qa deployment
-        uses: docker://alpine:3.20
-        shell: sh
-        run: |
-          echo "Deploying orders-api ${{ needs.package.outputs.artifact-version }} to qa (simulated)"
-      - name: Register deployed artifact
-        uses: cloudbees-io/register-deployed-artifact@v2
-        with:
-          artifact-id: ${{ needs.package.outputs.artifact-id }}
-          target-environment: qa
-      - name: Publish evidence
-        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
-        with:
-          content: |-
-            ## Deployment — qa (simulated)
-            - Artifact: orders-api ${{ needs.package.outputs.artifact-version }}
-            - Environment: qa
-            - Registered in the environment inventory
+      - security-scan
+      - ai-change-guardrail
+      - ai-guardrail-enforce
+    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' && needs.ai-change-guardrail.outputs.needs-human == 'yes' }}
+    uses: ./.cloudbees/workflows/package.yaml
+    with:
+      approved-by: human review (failed checks)
