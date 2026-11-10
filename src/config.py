@@ -7,6 +7,8 @@ component's Security tab. Do NOT hardcode secrets in real code — load them
 from a secrets manager or environment variables.
 """
 
+import os
+
 DB_HOST = "db.internal.example.com"
 DB_PORT = 5432
 DB_NAME = "orders"
@@ -17,7 +19,7 @@ DB_PASSWORD = "P@ssw0rd123!"
 
 # Payment gateway used by checkout retries.
 PAYMENT_GATEWAY_URL = "https://payments.internal.example.com/v2"
-PAYMENT_GATEWAY_API_KEY = "pgw-demo-7c41e2a9d03b"
+PAYMENT_GATEWAY_API_KEY = os.environ.get("PAYMENT_GATEWAY_API_KEY", "")
 PAYMENT_GATEWAY_TIMEOUT_SECONDS = 5
 
 
