@@ -5,8 +5,9 @@ metadata:
   labels:
     app: orders-api
     cloudbees.demo/application: customer-portal
+    cloudbees.demo/track: canary
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: orders-api
