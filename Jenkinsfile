@@ -2,24 +2,45 @@
 // Multibranch Pipeline on a controller connected to CloudBees Unify (plugin
 // cloudbees-cbp-unify-integration); builds and JUnit results then show up on
 // the cloudbees-unify-demo-kit component next to the Unify and GitHub Actions runs.
+//
+// Outcomes come from the repo itself:
+//   lint error or new hardcoded secret -> FAILURE
+//   failing test (tests/*.sh)          -> UNSTABLE
+//   everything clean                   -> SUCCESS
 pipeline {
   agent any
+  options {
+    timestamps()
+    buildDiscarder(logRotator(numToKeepStr: '50'))
+  }
   stages {
+    stage('Lint') {
+      steps {
+        sh 'bash ci/lint.sh'
+      }
+    }
     stage('Build') {
       steps {
-        sh 'mkdir -p build && echo "orders-api ${BUILD_NUMBER}" > build/orders-api.txt'
+        sh 'bash ci/build.sh'
+        script { currentBuild.description = "orders-api ${readFile('build/VERSION').trim()}" }
       }
     }
     stage('Unit tests') {
       steps {
-        echo 'orders-api unit tests (recorded results in test-reports/junit.xml)'
-        // The recorded run has a known failure, so the build is UNSTABLE, not FAILED.
-        junit 'test-reports/junit.xml'
+        sh 'bash ci/run-tests.sh build/test-results/junit.xml'
+      }
+      post {
+        always { junit 'build/test-results/*.xml' }
+      }
+    }
+    stage('Security scan') {
+      steps {
+        sh 'bash ci/secret-scan.sh'
       }
     }
     stage('Archive') {
       steps {
-        archiveArtifacts artifacts: 'build/orders-api.txt'
+        archiveArtifacts artifacts: 'build/*.tgz, build/VERSION', fingerprint: true
       }
     }
   }
