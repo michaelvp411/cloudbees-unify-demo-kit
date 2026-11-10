@@ -33,10 +33,34 @@ jobs:
           skopeo copy --insecure-policy "docker://${{ inputs.scan-image }}" \
             "docker-archive:$CLOUDBEES_WORKSPACE/image.tar:${{ inputs.scan-image }}"
           ls -lh "$CLOUDBEES_WORKSPACE/image.tar"
-      - name: Generate SBOM with Syft
-        uses: https://github.com/cloudbees-io/syft-sbom-plugin@v1
+      # Inlined cloudbees-io/syft-sbom-plugin@v1: every tag of that action pins
+      # assets-syft-sbom:9f83442..., which has been removed from the registry
+      # (ImagePullBackOff). Same three steps, newest published scanner image.
+      - name: Generate reference files
+        uses: docker://public.ecr.aws/l7o7z1g8/actions/assets-plugin-chain-utils:afe4ff56adcf637d9719123748fac8b4cdfd59a7
         with:
-          binary-tar-path: image.tar
+          entrypoint: assets-plugin-chain-utils
+          args: generate-references --asset-type "BINARY" --tags "BINARY_CONTAINER" --binary-tar-path image.tar
+        env:
+          INPUT_CLOUDBEES_API_TOKEN: ${{ cloudbees.api.token }}
+          INPUT_CLOUDBEES_API_URL: ${{ cloudbees.api.url }}
+          INPUT_RUN_ID: ${{ cloudbees.run_id }}
+      - name: Generate SBOM with Syft
+        uses: docker://public.ecr.aws/l7o7z1g8/actions/assets-syft-sbom:539fa72c350a38b380c9abc08b1c2ea9917e4337
+        env:
+          RUN_ID: ${{ cloudbees.run_id }}
+          JOB_ID: ${{ job.id }}
+          STEP_ID: ${{ step.internal.id }}
+        run: /app/plugin-syftbom-analyser -mode single
+      - name: Complete execution plan
+        uses: docker://public.ecr.aws/l7o7z1g8/actions/assets-plugin-chain-utils:afe4ff56adcf637d9719123748fac8b4cdfd59a7
+        with:
+          entrypoint: assets-plugin-chain-utils
+          args: process-outputs
+        env:
+          INPUT_CLOUDBEES_API_TOKEN: ${{ cloudbees.api.token }}
+          INPUT_CLOUDBEES_API_URL: ${{ cloudbees.api.url }}
+          INPUT_RUN_ID: ${{ cloudbees.run_id }}
 
   trivy-scan:
     steps:
