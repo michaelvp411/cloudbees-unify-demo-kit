@@ -1,5 +1,5 @@
-// One page, two demo brands. Each brand reads its flags from its own
-// CloudBees Unify application: FinSure Payments Platform or Horizon Patient Platform.
+// Demo brand page. The brand reads its flags from the CloudBees Unify
+// application FinSure Payments Platform.
 // Without an SDK key the page runs in local demo mode and the inspector toggles stand in for Unify.
 
 const BRANDS = {
@@ -30,34 +30,6 @@ const BRANDS = {
         Moving $75/week into savings keeps you on track for your <em>Emergency fund</em> goal by March.</p>
         <button class="ghost">Set up auto-save</button>
         ${aiFootnote('aiSpendingCoach', 'Insights are generated from your transactions and are not financial advice.')}`, 'ai'),
-    ],
-  },
-  horizon: {
-    name: 'Horizon Health',
-    tag: 'Patient Platform',
-    logo: 'H',
-    unifyApp: 'Horizon Patient Platform',
-    personas: [
-      { id: 'sam', name: 'Sam Patel', detail: 'Patient', tier: 'patient', isBetaTester: false },
-      { id: 'lee', name: 'Dr. Morgan Lee', detail: 'Clinician', tier: 'clinician', isBetaTester: false },
-      { id: 'ortiz', name: 'Casey Ortiz, RN', detail: 'Pilot clinic beta tester', tier: 'clinician', isBetaTester: true },
-    ],
-    flags: {
-      aiVisitSummary: { label: 'AI visit summary', ai: true, demoDefault: 'beta' },
-      telehealthCheckin: { label: 'Telehealth check-in', ai: false, demoDefault: 'off' },
-    },
-    cards: (p, on) => [
-      card(p.tier === 'patient' ? 'Next appointment' : 'Today’s schedule', p.tier === 'patient'
-        ? `<div class="big">Thu, Nov 6 · 9:30 AM</div><div class="muted">Dr. Morgan Lee · Primary care</div>`
-        : list([['9:30 AM', 'Sam Patel · Follow-up'], ['10:15 AM', 'R. Chen · Annual'], ['11:00 AM', 'L. Gomez · Labs review']])),
-      card('Check-in', on.telehealthCheckin
-        ? `<p><span class="pill new">New</span> Check in from home and join the video visit when your clinician is ready.</p><button class="primary">Start telehealth check-in</button>`
-        : `<p>Please arrive 15 minutes early to check in at the front desk.</p><button class="primary">Get directions</button>`),
-      card('Results', list([['Lipid panel', 'Normal'], ['A1C', '5.6%'], ['Vitamin D', 'Low']])),
-      on.aiVisitSummary && card('Visit summary', `
-        <p><strong>Oct 28 follow-up:</strong> blood pressure improved to 128/82 on current medication.
-        Continue lisinopril 10 mg daily, start vitamin D 1,000 IU, recheck labs in 3 months.</p>
-        ${aiFootnote('aiVisitSummary', p.tier === 'patient' ? 'Drafted by AI and reviewed by your care team.' : 'AI draft. Review before it is shared with the patient.')}`, 'ai'),
     ],
   },
 };

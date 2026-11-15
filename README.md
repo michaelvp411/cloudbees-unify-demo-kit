@@ -35,7 +35,7 @@ Supporting assets:
 1. Show the repo structure — teams keep their existing tools; Unify orchestrates.
 2. Run `ci.yaml` to show a standardized build/test/security pipeline, then walk its **Evidence** tab.
 3. Run `deploy.yaml` to show component deployment.
-4. Switch to the **[application repo](https://github.com/cb-demos/cloudbees-unify-demo-app)** and run a staged release workflow (FinSure Bank or Horizon Health) to tell the end-to-end governance/release story with per-job evidence.
+4. Switch to the **[application repo](https://github.com/cb-demos/cloudbees-unify-demo-app)** and run the FinSure Bank staged release workflow to tell the end-to-end governance/release story with per-job evidence.
 5. Close on business outcomes: visibility, governance, orchestration, developer productivity, and preserving existing tool investments.
 
 ## Customizing

@@ -14,11 +14,6 @@
   color: var(--text);
 }
 
-:root[data-brand="horizon"] {
-  --accent: #0f7f7a;
-  --accent-soft: #e3f4f2;
-}
-
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); }
 button { font: inherit; cursor: pointer; }

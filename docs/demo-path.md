@@ -15,9 +15,7 @@ This demo spans two repos, mirroring how CloudBees Unify separates a Component f
 2. Show `.github/workflows/ci.yml` as an example of existing external CI.
 3. Run `.cloudbees/workflows/ci.yaml` to show a standardized CloudBees build/test/security pattern, then walk its **Evidence** tab.
 4. Run `.cloudbees/workflows/deploy.yaml` to show a component deployment.
-5. Switch to the **application repo** and pick one staged release workflow, running it end to end:
-   - `release-finsure-bank.yaml` for regulated financial services (governance → staging → validation → approval → production → evidence)
-   - `release-horizon-health.yaml` for healthcare/platform engineering (QA → validation → staging → summary)
+5. Switch to the **application repo** and run the staged release workflow `release-finsure-bank.yaml` end to end (governance → staging → validation → approval → production → evidence).
 6. Walk the **Evidence** tab on the release run — each job publishes a governance/audit evidence item. Use the app repo's `policies/` and `mock-data/` as supporting talking points.
 7. (Optional) In the Unify Workflow Composer, add a real manual approval gate where the `production-approval` step is, to show governance live.
 8. Close with business outcomes: visibility, governance, orchestration, developer productivity, and preserving existing tool investments.
