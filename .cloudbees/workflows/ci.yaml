@@ -163,24 +163,6 @@ jobs:
       external-ci: ${{ steps.detect.outputs.external-ci }}
       failed-checks: ${{ steps.detect.outputs.failed-checks }}
       needs-human: ${{ steps.detect.outputs.needs-human }}
-  # Only AI changes that failed a check reach a human.
-  ai-guardrail-approval:
-    needs:
-      - ai-change-guardrail
-      - security-scan
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' && needs.ai-change-guardrail.outputs.needs-human == 'yes' }}
-    with:
-      instructions: "AI-assisted change (${{ needs.ai-change-guardrail.outputs.reason }}) failed policy checks: ${{ needs.ai-change-guardrail.outputs.failed-checks }}. Secrets added: ${{ needs.ai-change-guardrail.outputs.secret-findings }}. Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}). GitHub Actions: ${{ needs.ai-change-guardrail.outputs.external-ci }}. Review the change. If it adds a secret, the artifact is registered only if you grant a security exception."
-      disallowLaunchByUser: false
-      approvalInputs: |
-        security-exception-granted:
-          type: boolean
-          default: false
-        churn-reviewed:
-          type: boolean
-          default: true
-    timeout-minutes: 60
-    delegates: cloudbees-io/manual-approval/custom-job.yml@v1
   # Every check passed: policy approves, no human. Records the decision; the
   # package job below runs on the same condition.
   ai-guardrail-policy-pass:
@@ -197,47 +179,6 @@ jobs:
             - Secret scan: clean. Churn: ${{ needs.ai-change-guardrail.outputs.changed-lines }} lines (${{ needs.ai-change-guardrail.outputs.churn }}). GitHub Actions: ${{ needs.ai-change-guardrail.outputs.external-ci }}
             - Human approval: **not required**, every policy check passed
             - Result: **approved by policy**, artifact registration allowed
-  ai-guardrail-enforce:
-    needs:
-      - ai-change-guardrail
-      - ai-guardrail-approval
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' && needs.ai-change-guardrail.outputs.needs-human == 'yes' }}
-    steps:
-      - name: Enforce clean secret scan or approved exception
-        id: enforce
-        uses: docker://alpine:3.20
-        shell: sh
-        env:
-          AI: ${{ needs.ai-change-guardrail.outputs.ai-assisted }}
-          REASON: ${{ needs.ai-change-guardrail.outputs.reason }}
-          FINDINGS: ${{ needs.ai-change-guardrail.outputs.secret-findings }}
-          CHANGED: ${{ needs.ai-change-guardrail.outputs.changed-lines }}
-          CHURN: ${{ needs.ai-change-guardrail.outputs.churn }}
-          EXT_CI: ${{ needs.ai-change-guardrail.outputs.external-ci }}
-          # Empty when the approval gate was skipped, so parse it here rather than with fromJSON.
-          APPROVAL: ${{ needs.ai-guardrail-approval.outputs.approvalInputValues }}
-        run: |
-          approval_value() { echo "$APPROVAL" | grep -o "\"$1\": *\"\?[a-z]*" | sed 's/.*[": ]//'; }
-          EXCEPTION=$(approval_value security-exception-granted)
-          CHURN_REVIEWED=$(approval_value churn-reviewed)
-          echo "Secret findings: $FINDINGS, security exception granted: ${EXCEPTION:-none}"
-          if [ "$FINDINGS" != "0" ] && [ "$EXCEPTION" != "true" ]; then
-            echo "AI guardrail: secret scan not clean and no exception granted. Blocking artifact registration."
-            exit 1
-          fi
-          printf '%s' "- AI-assisted: **yes** ($REASON)
-          - Human approval: **approved** (failed checks needed review)
-          - Secret scan: $FINDINGS finding(s), security exception granted: ${EXCEPTION:-n/a}
-          - GitHub Actions: $EXT_CI
-          - Churn: $CHANGED lines ($CHURN), reviewed: ${CHURN_REVIEWED:-n/a}
-          - Result: **guardrails applied**, artifact registration allowed" > "$CLOUDBEES_OUTPUTS/summary"
-          echo "AI guardrail passed."
-      - name: Publish evidence
-        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
-        with:
-          content: |-
-            ## AI change guardrail — result
-            ${{ steps.enforce.outputs.summary }}
   unit-tests:
     needs:
       - validate
@@ -303,22 +244,18 @@ jobs:
             CloudBees Unify scans this repository on every push, whichever CI builds it
             (Gitleaks for secrets, Checkov for infrastructure as code, SCC). Findings
             are in the component's **Security** tab for triage and remediation tracking.
-  # Not gated (not AI-assisted, report-only, or every check passed): package now.
+  # Always runs: Unify can leave a run open forever when a delegated approval
+  # job or a workflow call is skipped, so nothing here is conditional. The
+  # package workflow itself holds the build when an AI change failed a check;
+  # the human review then happens in ai-review.yaml.
   package:
     needs:
       - security-scan
       - ai-change-guardrail
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted != 'yes' || needs.ai-change-guardrail.outputs.enforce != 'true' || needs.ai-change-guardrail.outputs.needs-human == 'no' }}
     uses: ./.cloudbees/workflows/package.yaml
     with:
       approved-by: automatic (no review required by policy)
-  # Gated: package only after a human reviewed it and enforce passed.
-  package-after-review:
-    needs:
-      - security-scan
-      - ai-change-guardrail
-      - ai-guardrail-enforce
-    if: ${{ needs.ai-change-guardrail.outputs.ai-assisted == 'yes' && needs.ai-change-guardrail.outputs.enforce == 'true' && needs.ai-change-guardrail.outputs.needs-human == 'yes' }}
-    uses: ./.cloudbees/workflows/package.yaml
-    with:
-      approved-by: human review (failed checks)
+      ai-assisted: ${{ needs.ai-change-guardrail.outputs.ai-assisted }}
+      enforce: ${{ needs.ai-change-guardrail.outputs.enforce }}
+      needs-human: ${{ needs.ai-change-guardrail.outputs.needs-human }}
+      failed-checks: ${{ needs.ai-change-guardrail.outputs.failed-checks }}

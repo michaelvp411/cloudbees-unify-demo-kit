@@ -1,0 +1,99 @@
+apiVersion: automation.cloudbees.io/v1alpha1
+kind: workflow
+name: ai-review
+
+# Human review for an AI-assisted change that ci.yaml held because it failed a
+# guardrail check (policies/ai-governance-policy.yaml). Run it on the held
+# commit and copy the values from the held run's "AI change guardrail — checks"
+# evidence. A reviewer approves; a secret needs an explicit exception; then the
+# build is packaged and lands in qa. Kept out of ci.yaml so no job is ever
+# skipped there: Unify can leave a run open when a skipped approval job exists.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        type: string
+        description: Why the change counts as AI-assisted
+        default: "trailer: Co-Authored-By: Claude"
+      failed-checks:
+        type: string
+        description: Guardrail checks that failed
+        default: secret-scan
+      secret-findings:
+        type: string
+        description: Hardcoded credentials the change adds
+        default: "1"
+      changed-lines:
+        type: string
+        default: "0"
+      churn:
+        type: string
+        default: ok
+      external-ci:
+        type: string
+        default: success
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  ai-guardrail-approval:
+    with:
+      instructions: "AI-assisted change (${{ inputs.reason }}) failed policy checks: ${{ inputs.failed-checks }}. Secrets added: ${{ inputs.secret-findings }}. Churn: ${{ inputs.changed-lines }} lines (${{ inputs.churn }}). GitHub Actions: ${{ inputs.external-ci }}. Review the change. If it adds a secret, the artifact is registered only if you grant a security exception."
+      disallowLaunchByUser: false
+      approvalInputs: |
+        security-exception-granted:
+          type: boolean
+          default: false
+        churn-reviewed:
+          type: boolean
+          default: true
+    timeout-minutes: 60
+    delegates: cloudbees-io/manual-approval/custom-job.yml@v1
+
+  ai-guardrail-enforce:
+    needs:
+      - ai-guardrail-approval
+    steps:
+      - name: Enforce clean secret scan or approved exception
+        id: enforce
+        uses: docker://alpine:3.20
+        shell: sh
+        env:
+          REASON: ${{ inputs.reason }}
+          FINDINGS: ${{ inputs.secret-findings }}
+          CHANGED: ${{ inputs.changed-lines }}
+          CHURN: ${{ inputs.churn }}
+          EXT_CI: ${{ inputs.external-ci }}
+          APPROVAL: ${{ needs.ai-guardrail-approval.outputs.approvalInputValues }}
+        run: |
+          approval_value() { echo "$APPROVAL" | grep -o "\"$1\": *\"\?[a-z]*" | sed 's/.*[": ]//'; }
+          EXCEPTION=$(approval_value security-exception-granted)
+          CHURN_REVIEWED=$(approval_value churn-reviewed)
+          echo "Secret findings: $FINDINGS, security exception granted: ${EXCEPTION:-none}"
+          if [ "$FINDINGS" != "0" ] && [ "$EXCEPTION" != "true" ]; then
+            echo "AI guardrail: secret scan not clean and no exception granted. Blocking artifact registration."
+            exit 1
+          fi
+          printf '%s' "- AI-assisted: **yes** ($REASON)
+          - Human approval: **approved** (failed checks needed review)
+          - Secret scan: $FINDINGS finding(s), security exception granted: ${EXCEPTION:-n/a}
+          - GitHub Actions: $EXT_CI
+          - Churn: $CHANGED lines ($CHURN), reviewed: ${CHURN_REVIEWED:-n/a}
+          - Result: **guardrails applied**, artifact registration allowed" > "$CLOUDBEES_OUTPUTS/summary"
+          echo "AI guardrail passed."
+      - name: Publish evidence
+        uses: https://github.com/cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## AI change guardrail — result
+            ${{ steps.enforce.outputs.summary }}
+
+  package-after-review:
+    needs:
+      - ai-guardrail-enforce
+    uses: ./.cloudbees/workflows/package.yaml
+    with:
+      approved-by: human review (failed checks)

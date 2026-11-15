@@ -2,10 +2,10 @@ apiVersion: automation.cloudbees.io/v1alpha1
 kind: workflow
 name: package
 
-# Registers the orders-api artifact and lands it in qa. Called by ci.yaml from
-# two places: after the policy approves a change on its own, and after a human
-# review. Unify skips any job that needs a skipped job, so each path calls this
-# with no dependency on the other.
+# Registers the orders-api artifact and lands it in qa. Called by ci.yaml on
+# every run, and by ai-review.yaml after a human approves. When ci.yaml passes
+# an AI-assisted change that failed a guardrail check, the first step holds the
+# build and points to ai-review.yaml, so ci.yaml needs no skipped jobs.
 
 on:
   workflow_call:
@@ -13,10 +13,32 @@ on:
       approved-by:
         type: string
         required: true
+      ai-assisted:
+        type: string
+        default: "no"
+      enforce:
+        type: string
+        default: "false"
+      needs-human:
+        type: string
+        default: "no"
+      failed-checks:
+        type: string
+        default: none
 
 jobs:
   package:
     steps:
+      - name: Hold for human review if the AI guardrail failed
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          if [ "${{ inputs.ai-assisted }}" = "yes" ] && [ "${{ inputs.enforce }}" = "true" ] && [ "${{ inputs.needs-human }}" = "yes" ]; then
+            echo "AI-assisted change failed guardrail checks: ${{ inputs.failed-checks }}"
+            echo "Build held. A reviewer approves it by running the ai-review workflow."
+            exit 1
+          fi
+          echo "No review required: ${{ inputs.approved-by }}"
       - name: Checkout source
         uses: https://github.com/cloudbees-io/checkout@v1
       - name: Create build metadata
